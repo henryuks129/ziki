@@ -12,19 +12,15 @@ import { mutedUsersFor, watchersFor } from "@/lib/watch";
 import { expireUnreadCounts } from "@/lib/lookups";
 import { logger } from "@/lib/logger";
 
-/**
- * Fills in the audience for events that go to an issue's watchers (#216):
- * new comments and status changes. Other events name their recipients.
- */
+/** Resolves status watchers and applies issue mutes to direct replies. */
 async function withWatchers(event: NotificationEvent): Promise<NotificationEvent> {
   if (event.kind === "comment_added") {
-    const [recipientIds, muted] = await Promise.all([
-      watchersFor(prisma, event.bugId, event.recipientIds),
-      // Explicit "Unwatch" also silences reply notices to that person (#738).
-      mutedUsersFor(prisma, event.bugId),
-    ]);
+    if (!event.parentAuthorId) return { ...event, recipientIds: [] };
+
+    // Explicit "Unwatch" also silences reply notices to that person (#738).
+    const muted = await mutedUsersFor(prisma, event.bugId);
     const excludeIds = [...new Set([...(event.excludeIds ?? []), ...muted])];
-    return { ...event, recipientIds, ...(excludeIds.length ? { excludeIds } : {}) };
+    return { ...event, recipientIds: [], excludeIds };
   }
   if (event.kind === "status_changed") {
     const bug = await prisma.bug.findUnique({
